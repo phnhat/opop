@@ -38,6 +38,7 @@ export type MapType = 'island' | 'waterfall';
 // 'O': Fallen Log Tile
 // 'M': Mountain Stone Stair Step Tile
 // 'F': Waterfall Water Source Tile
+// 'C': Fire Bonfire / Campfire Tile
 // '.': Empty Sky / Void
 
 const ISLAND_TILE_MAP: string[][] = [
@@ -49,7 +50,7 @@ const ISLAND_TILE_MAP: string[][] = [
   ['.', 'T', 'G', 'B', 'G', 'G', 'W', 'L', 'W', 'W', 'L', 'W', 'W', 'G', 'G', 'B', 'G', '.'],
   ['.', 'G', 'G', 'G', 'G', 'G', 'S', 'W', 'W', 'L', 'W', 'W', 'W', 'S', 'G', 'G', 'T', '.'],
   ['.', 'G', 'G', 'T', 'G', 'G', 'G', 'G', 'W', 'W', 'W', 'G', 'G', 'G', 'G', 'G', 'G', '.'],
-  ['.', 'G', 'B', 'G', 'G', 'G', 'G', 'G', 'S', 'G', 'S', 'G', 'G', 'B', 'G', 'G', 'G', '.'],
+  ['.', 'G', 'B', 'G', 'G', 'G', 'C', 'G', 'S', 'G', 'S', 'G', 'G', 'B', 'G', 'G', 'G', '.'],
   ['.', 'G', 'G', 'G', 'T', 'G', 'G', 'G', 'G', 'G', 'G', 'G', 'G', 'G', 'T', 'G', 'G', '.'],
   ['.', '.', 'G', 'G', 'G', 'G', 'B', 'G', 'G', 'G', 'B', 'G', 'G', 'G', 'G', 'G', '.', '.'],
   ['.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.'],
@@ -206,6 +207,7 @@ export const IslandPondCanvas: React.FC<IslandPondCanvasProps> = ({
       return baseElevation; // Ground / Water surface
     } else {
       if (tile === 'B') return 0.9;   // Elevate toad to sit on top of bush
+      if (tile === 'C') return 0.65;  // Elevate toad when sitting near bonfire pit
       if (tile === 'O') {
         if (row === 2 && col >= 6 && col <= 10) return 0.825; // Elevate toad on giant log behind pond
         return 0.725; // Standard fallen log
@@ -338,6 +340,7 @@ export const IslandPondCanvas: React.FC<IslandPondCanvasProps> = ({
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     container.innerHTML = '';
     container.appendChild(renderer.domElement);
@@ -416,6 +419,11 @@ export const IslandPondCanvas: React.FC<IslandPondCanvasProps> = ({
     const pineLeafMat = new THREE.MeshStandardMaterial({ color: 0x1d4d29, roughness: 0.6 });
     const redLeafMat = new THREE.MeshStandardMaterial({ color: 0xbc2d19, roughness: 0.6 });
     const redLeafTopMat = new THREE.MeshStandardMaterial({ color: 0xda5a24, roughness: 0.6 });
+    const ashMat = new THREE.MeshStandardMaterial({ color: 0x221a14, roughness: 0.95 });
+    const emberMat = new THREE.MeshStandardMaterial({ color: 0xff3300, emissive: 0xff3300, emissiveIntensity: 2.0, roughness: 0.3 });
+    const flameBaseMat = new THREE.MeshStandardMaterial({ color: 0xff2200, emissive: 0xff3300, emissiveIntensity: 2.5, transparent: true, opacity: 0.92 });
+    const flameMidMat = new THREE.MeshStandardMaterial({ color: 0xff8800, emissive: 0xffaa00, emissiveIntensity: 3.0, transparent: true, opacity: 0.95 });
+    const flameCoreMat = new THREE.MeshStandardMaterial({ color: 0xfff066, emissive: 0xfff066, emissiveIntensity: 3.5 });
 
     // 4. Construct Floating Island / Waterfall Mountain 3D Block Grid & Moving Water Array
     const islandGroup = new THREE.Group();
@@ -423,6 +431,16 @@ export const IslandPondCanvas: React.FC<IslandPondCanvasProps> = ({
     const waterGeo = new THREE.BoxGeometry(TILE_SIZE, 0.4, TILE_SIZE);
 
     const waterMeshes: { mesh: THREE.Mesh; initY: number; gridX: number; gridZ: number }[] = [];
+    const bonfireAnims: {
+      flameOuter: THREE.Mesh;
+      flameMid: THREE.Mesh;
+      flameInner: THREE.Mesh;
+      fireLight: THREE.PointLight;
+      embersList: { mesh: THREE.Mesh; initY: number; speed: number; phase: number }[];
+      centerX: number;
+      centerZ: number;
+      baseY: number;
+    }[] = [];
     const activeTileMap = selectedMap === 'waterfall' ? WATERFALL_TILE_MAP : ISLAND_TILE_MAP;
 
     for (let r = 0; r < ROWS; r++) {
@@ -634,6 +652,105 @@ export const IslandPondCanvas: React.FC<IslandPondCanvasProps> = ({
               log.castShadow = true;
               islandGroup.add(log);
             }
+          } else if (tileType === 'C') {
+            // --- FIRE BONFIRE / CAMPFIRE ---
+            const bonfireGroup = new THREE.Group();
+
+            // 1. Pit Stone Ring (Circle of small river rocks)
+            const rockCount = 8;
+            const radius = 0.38;
+            for (let i = 0; i < rockCount; i++) {
+              const angle = (i / rockCount) * Math.PI * 2;
+              const rockGeo = new THREE.DodecahedronGeometry(0.11 + Math.random() * 0.03, 1);
+              const rockMesh = new THREE.Mesh(rockGeo, riverRockMat1);
+              rockMesh.scale.set(1.0, 0.7, 1.0);
+              rockMesh.position.set(x + Math.cos(angle) * radius, tileBaseY + 0.1, z + Math.sin(angle) * radius);
+              rockMesh.rotation.y = angle + Math.random();
+              rockMesh.castShadow = true;
+              bonfireGroup.add(rockMesh);
+            }
+
+            // 2. Ash / Charcoal Pit Base
+            const ashGeo = new THREE.CylinderGeometry(0.32, 0.35, 0.08, 12);
+            const ashMesh = new THREE.Mesh(ashGeo, ashMat);
+            ashMesh.position.set(x, tileBaseY + 0.08, z);
+            ashMesh.receiveShadow = true;
+            bonfireGroup.add(ashMesh);
+
+            // 3. Glowing Embers Center Core
+            const emberGeo = new THREE.DodecahedronGeometry(0.22, 1);
+            const emberMesh = new THREE.Mesh(emberGeo, emberMat);
+            emberMesh.position.set(x, tileBaseY + 0.16, z);
+            bonfireGroup.add(emberMesh);
+
+            // 4. Criss-Cross Wood Logs Structure (Teepee / Pyre structure)
+            const logGeo = new THREE.CylinderGeometry(0.06, 0.08, 0.65, 8);
+            for (let i = 0; i < 4; i++) {
+              const logAngle = (i / 4) * Math.PI * 2 + Math.PI / 4;
+              const logMesh = new THREE.Mesh(logGeo, darkWoodMat);
+              logMesh.position.set(
+                x + Math.cos(logAngle) * 0.12,
+                tileBaseY + 0.24,
+                z + Math.sin(logAngle) * 0.12
+              );
+              logMesh.rotation.y = logAngle;
+              logMesh.rotation.z = Math.PI / 3.8;
+              logMesh.castShadow = true;
+              bonfireGroup.add(logMesh);
+            }
+
+            // 5. Layered Animated Flames (3 Voxel / Cone Pyramids)
+            const flameOuterGeo = new THREE.ConeGeometry(0.26, 0.55, 6);
+            const flameOuter = new THREE.Mesh(flameOuterGeo, flameBaseMat);
+            flameOuter.position.set(x, tileBaseY + 0.42, z);
+
+            const flameMidGeo = new THREE.ConeGeometry(0.19, 0.45, 6);
+            const flameMid = new THREE.Mesh(flameMidGeo, flameMidMat);
+            flameMid.position.set(x, tileBaseY + 0.46, z);
+
+            const flameInnerGeo = new THREE.ConeGeometry(0.12, 0.32, 6);
+            const flameInner = new THREE.Mesh(flameInnerGeo, flameCoreMat);
+            flameInner.position.set(x, tileBaseY + 0.5, z);
+
+            bonfireGroup.add(flameOuter, flameMid, flameInner);
+
+            // 6. Warm Dynamic Point Light casting glow onto environment
+            const fireLight = new THREE.PointLight(0xff7700, 2.8, 6.5);
+            fireLight.position.set(x, tileBaseY + 0.65, z);
+            fireLight.castShadow = true;
+            bonfireGroup.add(fireLight);
+
+            // 7. Floating Fire Spark Embers Array
+            const embersList: { mesh: THREE.Mesh; initY: number; speed: number; phase: number }[] = [];
+            const sparkGeo = new THREE.BoxGeometry(0.04, 0.04, 0.04);
+            const sparkMat = new THREE.MeshBasicMaterial({ color: 0xffcc00 });
+            for (let i = 0; i < 6; i++) {
+              const sparkMesh = new THREE.Mesh(sparkGeo, sparkMat);
+              const sx = x + (Math.random() - 0.5) * 0.25;
+              const sz = z + (Math.random() - 0.5) * 0.25;
+              const sy = tileBaseY + 0.4 + Math.random() * 0.6;
+              sparkMesh.position.set(sx, sy, sz);
+              bonfireGroup.add(sparkMesh);
+              embersList.push({
+                mesh: sparkMesh,
+                initY: tileBaseY + 0.4,
+                speed: 0.6 + Math.random() * 0.8,
+                phase: Math.random() * Math.PI * 2,
+              });
+            }
+
+            bonfireAnims.push({
+              flameOuter,
+              flameMid,
+              flameInner,
+              fireLight,
+              embersList,
+              centerX: x,
+              centerZ: z,
+              baseY: tileBaseY,
+            });
+
+            islandGroup.add(bonfireGroup);
           }
         }
       }
@@ -725,6 +842,7 @@ export const IslandPondCanvas: React.FC<IslandPondCanvasProps> = ({
 
       const texture = new THREE.CanvasTexture(canvas);
       texture.minFilter = THREE.LinearFilter;
+      texture.colorSpace = THREE.SRGBColorSpace;
       return texture;
     };
 
@@ -742,6 +860,8 @@ export const IslandPondCanvas: React.FC<IslandPondCanvasProps> = ({
           labelY = tileBaseY + 0.25;
         } else if (tileChar === 'B') {
           labelY = tileBaseY + 0.9;
+        } else if (tileChar === 'C') {
+          labelY = tileBaseY + 0.85;
         } else if (tileChar === 'O') {
           labelY = tileBaseY + 0.72;
         } else if (tileChar === 'S') {
@@ -1064,6 +1184,32 @@ export const IslandPondCanvas: React.FC<IslandPondCanvasProps> = ({
       // B. Drifting Clouds
       cloudsGroup.children.forEach((cloud, idx) => {
         cloud.position.x += Math.sin(elapsedTime * 0.2 + idx) * 0.01;
+      });
+
+      // B2. Bonfire Flame Flickering & Ember Particle Motion
+      bonfireAnims.forEach((b) => {
+        b.fireLight.intensity = 2.4 + Math.sin(elapsedTime * 14) * 0.4 + Math.cos(elapsedTime * 23) * 0.3;
+
+        const flamePulse = 1.0 + Math.sin(elapsedTime * 10) * 0.12 + Math.cos(elapsedTime * 17) * 0.08;
+        b.flameOuter.scale.set(flamePulse, flamePulse * (0.95 + Math.sin(elapsedTime * 8) * 0.1), flamePulse);
+        b.flameOuter.rotation.y = elapsedTime * 2.0;
+
+        b.flameMid.scale.set(flamePulse * 0.9, flamePulse * (1.0 + Math.cos(elapsedTime * 11) * 0.15), flamePulse * 0.9);
+        b.flameMid.rotation.y = -elapsedTime * 3.0;
+
+        b.flameInner.scale.set(1.0, 1.0 + Math.sin(elapsedTime * 15) * 0.2, 1.0);
+
+        b.embersList.forEach((emb) => {
+          emb.mesh.position.y += delta * emb.speed;
+          emb.mesh.position.x += Math.sin(elapsedTime * 4 + emb.phase) * 0.003;
+          emb.mesh.position.z += Math.cos(elapsedTime * 4 + emb.phase) * 0.003;
+
+          if (emb.mesh.position.y > b.baseY + 1.4) {
+            emb.mesh.position.y = b.baseY + 0.4;
+            emb.mesh.position.x = b.centerX + (Math.random() - 0.5) * 0.25;
+            emb.mesh.position.z = b.centerZ + (Math.random() - 0.5) * 0.25;
+          }
+        });
       });
 
       // C. Keyboard Grid Movement Logic for Local Player
@@ -1443,6 +1589,25 @@ export const IslandPondCanvas: React.FC<IslandPondCanvasProps> = ({
     return () => {
       window.removeEventListener('resize', handleResize);
       cancelAnimationFrame(animFrameId);
+
+      scene.traverse((object) => {
+        if ((object as THREE.Mesh).geometry) {
+          (object as THREE.Mesh).geometry.dispose();
+        }
+        if ((object as THREE.Mesh).material) {
+          const mat = (object as THREE.Mesh).material;
+          if (Array.isArray(mat)) {
+            mat.forEach((m) => {
+              if ('map' in m && m.map) (m.map as THREE.Texture).dispose();
+              m.dispose();
+            });
+          } else {
+            if ('map' in mat && mat.map) (mat.map as THREE.Texture).dispose();
+            mat.dispose();
+          }
+        }
+      });
+
       renderer.dispose();
       dropletGeo.dispose();
       dropletMat.dispose();

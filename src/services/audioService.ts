@@ -155,7 +155,9 @@ class AudioService {
 
     if (!enable) {
       if (this.ambientGain) {
-        this.ambientGain.gain.exponentialRampToValueAtTime(0.0001, this.ctx.currentTime + 0.5);
+        const now = this.ctx.currentTime;
+        this.ambientGain.gain.setValueAtTime(this.ambientGain.gain.value, now);
+        this.ambientGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.5);
       }
       this.isAmbientPlaying = false;
       return;
