@@ -1,0 +1,6 @@
+{
+  "name": "Pond - Multiplayer Focus App",
+  "description": "A multiplayer Pomodoro and focus app where users sit as pixel toads in a shared pond, earning XP for staying still with real-time speech bubbles and swarm bonuses.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
