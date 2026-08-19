@@ -57,6 +57,15 @@ export interface PondDecoration {
   icon: string;
 }
 
+export interface PlantedBomb {
+  id: string;
+  planterId: string;
+  col: number;
+  row: number;
+  mapName: string;
+  createdAt: number;
+}
+
 export interface UserSettings {
   focusDuration: number; // in minutes
   breakDuration: number; // in minutes

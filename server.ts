@@ -181,6 +181,76 @@ wss.on("connection", (ws) => {
           break;
         }
 
+        case "plant_bomb": {
+          if (!currentRoomId || !currentPlayerId) return;
+          const room = rooms.get(currentRoomId);
+          if (!room) return;
+
+          const bombPayload = {
+            type: "bomb_planted",
+            id: msg.id || `bomb_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            planterId: currentPlayerId,
+            col: msg.col,
+            row: msg.row,
+            mapName: msg.mapName || "island",
+            createdAt: Date.now(),
+          };
+
+          broadcastToRoom(room, bombPayload);
+          break;
+        }
+
+        case "detonate_bomb": {
+          if (!currentRoomId || !currentPlayerId) return;
+          const room = rooms.get(currentRoomId);
+          if (!room) return;
+
+          broadcastToRoom(room, {
+            type: "bomb_detonated",
+            bombId: msg.bombId,
+            col: msg.col,
+            row: msg.row,
+            mapName: msg.mapName,
+            detonatedBy: currentPlayerId,
+          });
+          break;
+        }
+
+        case "player_hop": {
+          if (!currentRoomId || !currentPlayerId) return;
+          const room = rooms.get(currentRoomId);
+          if (!room) return;
+
+          broadcastToRoom(room, {
+            type: "player_hop",
+            playerId: currentPlayerId,
+            fromCol: msg.fromCol,
+            fromRow: msg.fromRow,
+            toCol: msg.toCol,
+            toRow: msg.toRow,
+            facingAngle: msg.facingAngle,
+            carriedPlayerIds: msg.carriedPlayerIds || [],
+          });
+          break;
+        }
+
+        case "push_frog": {
+          if (!currentRoomId || !currentPlayerId) return;
+          const room = rooms.get(currentRoomId);
+          if (!room) return;
+
+          broadcastToRoom(room, {
+            type: "frog_pushed",
+            pusherId: currentPlayerId,
+            targetPlayerId: msg.targetPlayerId,
+            dCol: msg.dCol,
+            dRow: msg.dRow,
+            toCol: msg.toCol,
+            toRow: msg.toRow,
+          });
+          break;
+        }
+
         case "leave_room": {
           if (currentRoomId && currentPlayerId) {
             removePlayerFromRoom(currentRoomId, currentPlayerId);

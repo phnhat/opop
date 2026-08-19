@@ -64,6 +64,12 @@ export const PixiPondCanvas: React.FC<PixiPondCanvasProps> = ({
   const hopPhaseRef = useRef<number>(0);
   const keysPressedRef = useRef<{ [key: string]: boolean }>({});
 
+  // 10-Second Settling Transition to Stillness State (with 1s sitting-tight delay)
+  const isSettlingRef = useRef<boolean>(false);
+  const settleTimerRef = useRef<number>(0);
+  const SETTLE_DELAY = 1.0; // 1 second delay when frog sits tight before the ring appears
+  const SETTLE_DURATION = 10.0; // 10 seconds to transition from moving to still state
+
   // Dragging state for pointer fallback
   const [isDragging, setIsDragging] = useState(false);
 
@@ -224,18 +230,33 @@ export const PixiPondCanvas: React.FC<PixiPondCanvasProps> = ({
         // If newly started moving
         if (!isMovingRef.current) {
           isMovingRef.current = true;
+          isSettlingRef.current = false;
+          settleTimerRef.current = 0;
           onStillnessChange(false, localPosRef.current);
           audioService.playCroak(1.2);
         }
       } else if (isMovingRef.current && !isDragging) {
-        // Just stopped moving via keyboard
+        // Just stopped moving via keyboard -> start 10s settling transition
         isMovingRef.current = false;
         hopPhaseRef.current = 0;
         if (!localPosRef.current) {
           localPosRef.current = { ...getLocalDefaultPos() };
         }
-        onStillnessChange(true, localPosRef.current);
+        isSettlingRef.current = true;
+        settleTimerRef.current = 0;
         audioService.playSplash();
+      }
+
+      // Update Settling countdown for stillness (After 1s sitting tight, ring counts down 10s)
+      if (isSettlingRef.current && !isMovingRef.current && !isDragging) {
+        settleTimerRef.current += 1 / 60;
+        if (settleTimerRef.current >= SETTLE_DELAY + SETTLE_DURATION) {
+          isSettlingRef.current = false;
+          settleTimerRef.current = 0;
+          audioService.playChime();
+          const finalPos = localPosRef.current || getLocalDefaultPos();
+          onStillnessChange(true, finalPos);
+        }
       }
 
       // Calculate vertical hop offset for active movement
@@ -682,6 +703,66 @@ export const PixiPondCanvas: React.FC<PixiPondCanvasProps> = ({
           ctx.fill();
         }
 
+        // 10-Second Settling Loading Ring on TOP of toad's head (Appears after 1s sitting tight)
+        if (isLocal && isSettlingRef.current && !isKeyMoving && !isDragging && settleTimerRef.current >= SETTLE_DELAY) {
+          const activeSettlingTime = settleTimerRef.current - SETTLE_DELAY;
+          const progress = Math.min(1.0, activeSettlingTime / SETTLE_DURATION);
+          const remainingSec = Math.max(0, Math.ceil(SETTLE_DURATION - activeSettlingTime));
+          const ringRadius = 24;
+          const headY = -48 + Math.sin(time * 4) * 2;
+
+          ctx.save();
+          // Background Track
+          ctx.beginPath();
+          ctx.arc(0, headY, ringRadius, 0, Math.PI * 2);
+          ctx.strokeStyle = 'rgba(52, 211, 153, 0.25)';
+          ctx.lineWidth = 4.5;
+          ctx.stroke();
+
+          // Outer Pulse Aura
+          const pulse = 0.85 + Math.sin(time * 5) * 0.15;
+          ctx.beginPath();
+          ctx.arc(0, headY, ringRadius + 4, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(52, 211, 153, ${0.2 * pulse})`;
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+
+          // Active Animated Filling Arc
+          if (progress > 0) {
+            const startAngle = -Math.PI / 2;
+            const endAngle = startAngle + progress * Math.PI * 2;
+            ctx.beginPath();
+            ctx.arc(0, headY, ringRadius, startAngle, endAngle);
+            ctx.strokeStyle = '#34d399';
+            ctx.lineWidth = 5;
+            ctx.lineCap = 'round';
+            ctx.shadowColor = '#10b981';
+            ctx.shadowBlur = 8;
+            ctx.stroke();
+
+            // Leading Spark
+            const tipX = Math.cos(endAngle) * ringRadius;
+            const tipY = headY + Math.sin(endAngle) * ringRadius;
+            ctx.beginPath();
+            ctx.arc(tipX, tipY, 3.5, 0, Math.PI * 2);
+            ctx.fillStyle = '#ffffff';
+            ctx.shadowColor = '#ffffff';
+            ctx.shadowBlur = 6;
+            ctx.fill();
+          }
+
+          // Center Countdown Number (Just the number, NO background box)
+          ctx.shadowBlur = 8;
+          ctx.shadowColor = '#34d399';
+          ctx.font = 'bold 15px monospace';
+          ctx.fillStyle = '#ffffff';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(`${remainingSec}`, 0, headY + 1);
+
+          ctx.restore();
+        }
+
         ctx.restore();
 
         // Player Name & Status Tag
@@ -851,6 +932,8 @@ export const PixiPondCanvas: React.FC<PixiPondCanvasProps> = ({
       setIsDragging(true);
       localPosRef.current = { x: clickX, y: clickY };
       isMovingRef.current = true;
+      isSettlingRef.current = false;
+      settleTimerRef.current = 0;
       onStillnessChange(false, { x: clickX, y: clickY });
       audioService.playCroak(1.2);
     }
@@ -875,8 +958,9 @@ export const PixiPondCanvas: React.FC<PixiPondCanvasProps> = ({
     isMovingRef.current = false;
     audioService.playSplash();
 
-    const finalPos = localPosRef.current || getLocalDefaultPos();
-    onStillnessChange(true, finalPos);
+    // Start 10-second settling transition before stillness
+    isSettlingRef.current = true;
+    settleTimerRef.current = 0;
   };
 
   return (

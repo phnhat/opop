@@ -98,6 +98,46 @@ class SocketService {
     });
   }
 
+  public plantBomb(bomb: { id: string; col: number; row: number; mapName: string }) {
+    this.send({
+      type: 'plant_bomb',
+      ...bomb,
+    });
+  }
+
+  public detonateBomb(bombId: string, col: number, row: number, mapName: string) {
+    this.send({
+      type: 'detonate_bomb',
+      bombId,
+      col,
+      row,
+      mapName,
+    });
+  }
+
+  public sendHop(fromCol: number, fromRow: number, toCol: number, toRow: number, facingAngle: number, carriedPlayerIds: string[] = []) {
+    this.send({
+      type: 'player_hop',
+      fromCol,
+      fromRow,
+      toCol,
+      toRow,
+      facingAngle,
+      carriedPlayerIds,
+    });
+  }
+
+  public pushFrog(targetPlayerId: string, dCol: number, dRow: number, toCol: number, toRow: number) {
+    this.send({
+      type: 'push_frog',
+      targetPlayerId,
+      dCol,
+      dRow,
+      toCol,
+      toRow,
+    });
+  }
+
   public leaveRoom() {
     this.send({
       type: 'leave_room',
